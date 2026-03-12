@@ -1,29 +1,165 @@
-# Create T3 App
+# t3-latest
 
-This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`.
+T3 stack starter updated to latest everything. Next.js 16 + tRPC 11 + Auth.js v5 + Prisma 6 + Tailwind v4.
 
-## What's next? How do I make an app with this?
+## Use This Template
 
-We try to keep this project as simple as possible, so you can start with just the scaffolding we set up for you, and add additional things later when they become necessary.
+```bash
+gh repo create my-app --template vichudo/t3-latest --clone
+cd my-app
+pnpm install
+cp .env.example .env       # edit DATABASE_URL
+pnpm db:push               # push schema to db
+pnpm dev                   # http://localhost:3000
+```
 
-If you are not familiar with the different technologies used in this project, please refer to the respective docs. If you still are in the wind, please join our [Discord](https://t3.gg/discord) and ask for help.
+Or without creating a repo:
 
-- [Next.js](https://nextjs.org)
-- [NextAuth.js](https://next-auth.js.org)
-- [Prisma](https://prisma.io)
-- [Drizzle](https://orm.drizzle.team)
-- [Tailwind CSS](https://tailwindcss.com)
-- [tRPC](https://trpc.io)
+```bash
+npx degit vichudo/t3-latest my-app
+```
 
-## Learn More
+## What's Included
 
-To learn more about the [T3 Stack](https://create.t3.gg/), take a look at the following resources:
+| What       | Version / Notes                          |
+| ---------- | ---------------------------------------- |
+| Next.js    | 16 (App Router, Turbopack default)       |
+| tRPC       | 11 (React Query 5, SuperJSON, streaming) |
+| Auth.js    | v5 (Prisma adapter, Discord provider)    |
+| Prisma     | 6 (PostgreSQL)                           |
+| Tailwind   | v4                                       |
+| TypeScript | 5 (strict, noUncheckedIndexedAccess)     |
+| ESLint     | 9 (flat config, no `next lint`)          |
+| Zod        | 3 (input validation)                     |
 
-- [Documentation](https://create.t3.gg/)
-- [Learn the T3 Stack](https://create.t3.gg/en/faq#what-learning-resources-are-currently-available) — Check out these awesome tutorials
+## Project Structure
 
-You can check out the [create-t3-app GitHub repository](https://github.com/t3-oss/create-t3-app) — your feedback and contributions are welcome!
+```
+src/
+  app/
+    api/auth/[...nextauth]/   Auth handler
+    api/trpc/[trpc]/          tRPC handler
+    _components/              Client components
+    layout.tsx                Root layout (TRPCReactProvider)
+    page.tsx                  Home (server component)
+  server/
+    api/routers/              Add tRPC routers here
+    api/root.ts               Register routers here
+    api/trpc.ts               Context + procedures
+    auth/config.ts            Auth providers + callbacks
+    auth/index.ts             auth(), signIn, signOut
+    db.ts                     Prisma client
+  trpc/
+    react.tsx                 Client hooks (api.x.useQuery)
+    server.ts                 RSC caller (await api.x())
+    query-client.ts           React Query config
+  env.js                      Env validation (Zod)
+prisma/
+  schema.prisma               DB schema
+```
 
-## How do I deploy this?
+## Recipes
 
-Follow our deployment guides for [Vercel](https://create.t3.gg/en/deployment/vercel), [Netlify](https://create.t3.gg/en/deployment/netlify) and [Docker](https://create.t3.gg/en/deployment/docker) for more information.
+### Add a tRPC router
+
+```ts
+// src/server/api/routers/todo.ts
+import { z } from "zod";
+import { createTRPCRouter, protectedProcedure } from "../trpc";
+
+export const todoRouter = createTRPCRouter({
+  list: protectedProcedure.query(({ ctx }) =>
+    ctx.db.todo.findMany({ where: { userId: ctx.session.user.id } }),
+  ),
+  create: protectedProcedure
+    .input(z.object({ title: z.string().min(1) }))
+    .mutation(({ ctx, input }) =>
+      ctx.db.todo.create({ data: { title: input.title, userId: ctx.session.user.id } }),
+    ),
+});
+```
+
+Register it:
+
+```ts
+// src/server/api/root.ts
+import { todoRouter } from "./routers/todo";
+
+export const appRouter = createTRPCRouter({
+  post: postRouter,
+  todo: todoRouter, // add here
+});
+```
+
+Use it:
+
+```tsx
+// Server Component
+const todos = await api.todo.list();
+
+// Client Component ("use client")
+const [todos] = api.todo.list.useSuspenseQuery();
+const create = api.todo.create.useMutation();
+```
+
+### Add an auth provider
+
+```ts
+// src/server/auth/config.ts
+import GitHubProvider from "next-auth/providers/github";
+
+export const authConfig = {
+  providers: [
+    DiscordProvider,
+    GitHubProvider, // add provider
+  ],
+  // ...
+} satisfies NextAuthConfig;
+```
+
+Add the env vars to `.env` and register them in `src/env.js`.
+
+### Database
+
+```bash
+pnpm db:push        # apply schema changes (dev)
+pnpm db:generate    # create a migration
+pnpm db:migrate     # run migrations (prod)
+pnpm db:studio      # visual editor
+```
+
+## Scripts
+
+| Command              | What it does                    |
+| -------------------- | ------------------------------- |
+| `pnpm dev`           | Start dev server (Turbopack)    |
+| `pnpm build`         | Production build (Turbopack)    |
+| `pnpm start`         | Start production server         |
+| `pnpm check`         | Lint + typecheck                |
+| `pnpm lint`          | ESLint                          |
+| `pnpm lint:fix`      | ESLint with auto-fix            |
+| `pnpm typecheck`     | TypeScript only                 |
+| `pnpm format:write`  | Prettier format                 |
+| `pnpm db:push`       | Push Prisma schema to DB        |
+| `pnpm db:studio`     | Open Prisma Studio              |
+
+## Environment Variables
+
+Configure in `.env`, validated at build time by `src/env.js`.
+
+| Variable             | Required    | How to get                          |
+| -------------------- | ----------- | ----------------------------------- |
+| `DATABASE_URL`       | Always      | Your PostgreSQL connection string   |
+| `AUTH_SECRET`        | Production  | Run `npx auth secret`              |
+| `AUTH_DISCORD_ID`    | If using    | https://discord.com/developers      |
+| `AUTH_DISCORD_SECRET`| If using    | Same as above                       |
+
+## Deploy
+
+Works out of the box on [Vercel](https://vercel.com). Set your env vars and push.
+
+For other platforms, see the [T3 deployment guides](https://create.t3.gg/en/deployment).
+
+## Based On
+
+[create-t3-app](https://create.t3.gg) v7.40.0, updated for Next.js 16.
